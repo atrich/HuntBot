@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.32802.440
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "HuntBot", "HuntBot.csproj", "{874DA54E-8C86-4A44-9B76-74E24A2932FE}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{874DA54E-8C86-4A44-9B76-74E24A2932FE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{874DA54E-8C86-4A44-9B76-74E24A2932FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{874DA54E-8C86-4A44-9B76-74E24A2932FE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{874DA54E-8C86-4A44-9B76-74E24A2932FE}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {6AFA3D28-28A5-457A-A0C4-35993233E62F}
+	EndGlobalSection
+EndGlobal
