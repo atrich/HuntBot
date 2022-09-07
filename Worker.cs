@@ -5,6 +5,13 @@ using HuntBot.Configs;
 using Azure.Extensions.AspNetCore.Configuration.Secrets;
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Drive.v3;
+using Google.Apis.Services;
+using Google.Apis.Sheets.v4;
+using Google.Apis.Sheets.v4.Data;
+using System.Buffers.Text;
+using System.Text;
 
 namespace HuntBot
 {
@@ -13,6 +20,8 @@ namespace HuntBot
         private ILogger<Worker> logger;
         private IConfiguration configuration;
         private DiscordClient discordClient;
+        private DriveService driveService;
+        private SheetsService sheetsService;
 
         public Worker(ILogger<Worker> logger, IConfiguration configuration)
         {
@@ -47,19 +56,56 @@ namespace HuntBot
                     Intents = DiscordIntents.Guilds | DiscordIntents.AllUnprivileged
                 });
 
+                await discordClient.ConnectAsync();
+
+                var googleConfig = new GoogleApiConifguration();
+                builtConfig.GetSection(GoogleApiConifguration.SectionName).Bind(googleConfig);
+
+                byte[] apiKeyBytes = Convert.FromBase64String(builtConfig["GoogleApiServiceAccountKey"]);
+                string apiKey = Encoding.UTF8.GetString(apiKeyBytes);
+                await ConnectToGoogleCloudApi(googleConfig.AccountId, apiKey);
+
+                var services = new ServiceCollection()
+                    .AddSingleton(SheetBackedPuzzleList.FromSheet(googleConfig.PuzzleSheetId, sheetsService))
+                    .AddSingleton(driveService)
+                    .BuildServiceProvider();
+
                 var commands = discordClient.UseCommandsNext(new CommandsNextConfiguration()
                 {
-                    StringPrefixes = new[] { "!" }
+                    StringPrefixes = new[] { "!" },
+                    Services = services
                 });
 
-                commands.RegisterCommands<HelpModule>();
-
-                await discordClient.ConnectAsync();
+                commands.RegisterCommands<TestModule>();
+                commands.RegisterCommands<PuzzleModule>();
             }
             catch (Exception e)
             {
                 logger.LogError(e, "Error during startup");
             }
+        }
+
+        private async Task ConnectToGoogleCloudApi(string accountId, string apiServiceKey)
+        {
+            var credentialInitializer = new ServiceAccountCredential.Initializer(accountId)
+            {
+                Scopes = new[] { DriveService.Scope.Drive }
+            };
+
+            var credential = new ServiceAccountCredential(credentialInitializer
+                .FromPrivateKey(apiServiceKey));
+
+            driveService = new DriveService(new BaseClientService.Initializer
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = "HuntBot"
+            });
+
+            sheetsService = new SheetsService(new BaseClientService.Initializer
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = "HuntBot"
+            });
         }
 
         protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.CompletedTask;
