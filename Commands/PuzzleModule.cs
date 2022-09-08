@@ -28,6 +28,7 @@ namespace HuntBot.Commands
             if (DriveService is null)
             {
                 await ctx.RespondAsync("error: google drive service is unavailable");
+                return;
             }
 
             name = name.Trim();
@@ -39,7 +40,110 @@ namespace HuntBot.Commands
                 return;
             }
 
-            DiscordMessageBuilder message = await RenderMessage(ctx.Client, puzzle);
+            var message = await RenderMessage(ctx.Client, puzzle);
+            await message.SendAsync(ctx.Channel);
+        }
+
+        [Command("find")]
+        public async Task FindPuzzleCommand(CommandContext ctx, [RemainingText] string query)
+        {
+            if (PuzzleList is null)
+            {
+                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
+                return;
+            }
+
+            if (DriveService is null)
+            {
+                await ctx.RespondAsync("error: google drive service is unavailable");
+                return;
+            }
+
+            query = query.Trim();
+            var puzzles = await PuzzleList.FindPuzzles(query);
+            if (puzzles is null || puzzles.Count() == 0)
+            {
+                await ctx.RespondAsync($"error: no puzzles match query '{query}'");
+                return;
+            }
+
+            foreach(var puzzle in puzzles)
+            {
+                var message = await RenderMessage(ctx.Client, puzzle);
+                await message.SendAsync(ctx.Channel);
+            }
+        }
+
+        [Command("new")]
+        public async Task NewPuzzleCommand(CommandContext ctx, [RemainingText] string name)
+        {
+            if (PuzzleList is null)
+            {
+                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
+                return;
+            }
+
+            if (DriveService is null)
+            {
+                await ctx.RespondAsync("error: google drive service is unavailable");
+                return;
+            }
+
+            name = name.Trim();
+            var puzzle = await PuzzleList.NewPuzzle(name);
+            var message = await RenderMessage(ctx.Client, puzzle);
+            await message.SendAsync(ctx.Channel);
+        }
+
+        [Command("sheet")]
+        public async Task AddSheetToPuzzleCommand(CommandContext ctx)
+        {
+            if (PuzzleList is null)
+            {
+                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
+                return;
+            }
+
+            if (DriveService is null)
+            {
+                await ctx.RespondAsync("error: google drive service is unavailable");
+                return;
+            }
+
+            var puzzle = await PuzzleList.AddItem(SheetBackedPuzzleList.DocType.Sheet, ctx.Channel.Id);
+            if (puzzle is null)
+            {
+                await ctx.RespondAsync("error: could not find puzzle record for this channel");
+                return;
+            }
+
+            var message = await RenderMessage(ctx.Client, puzzle);
+            await message.SendAsync(ctx.Channel);
+        }
+
+        [Command("doc")]
+        public async Task AddDocToPuzzlecommand(CommandContext ctx)
+        {
+            if (PuzzleList is null)
+            {
+                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
+                return;
+            }
+
+            if (DriveService is null)
+            {
+                await ctx.RespondAsync("error: google drive service is unavailable");
+                return;
+            }
+
+            var puzzle = await PuzzleList.AddItem(SheetBackedPuzzleList.DocType.Doc, ctx.Channel.Id);
+            if (puzzle is null)
+            {
+                await ctx.RespondAsync("error: could not find puzzle record for this channel");
+                return;
+            }
+
+            var message = await RenderMessage(ctx.Client, puzzle);
             await message.SendAsync(ctx.Channel);
         }
 

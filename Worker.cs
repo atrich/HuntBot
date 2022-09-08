@@ -65,8 +65,24 @@ namespace HuntBot
                 string apiKey = Encoding.UTF8.GetString(apiKeyBytes);
                 await ConnectToGoogleCloudApi(googleConfig.AccountId, apiKey);
 
+                var discordConfig = new DiscordApiConfiguration();
+                builtConfig.GetSection(DiscordApiConfiguration.SectionName).Bind(discordConfig);
+
+                var puzzleChatGroupChannel = await discordClient.GetChannelAsync(discordConfig.PuzzleChatGroupId);
+                var solvedPuzzleChatGroupChannel = await discordClient.GetChannelAsync(discordConfig.SolvedPuzzleChatGroupId);
+                var voiceChatGroupChannel = await discordClient.GetChannelAsync(discordConfig.VoiceGroupId);
+
+                var puzzleList = SheetBackedPuzzleList.FromSheet(
+                    googleConfig.PuzzleSheetId,
+                    googleConfig.HuntDirectoryId,
+                    driveService,
+                    sheetsService,
+                    puzzleChatGroupChannel,
+                    solvedPuzzleChatGroupChannel,
+                    voiceChatGroupChannel);
+
                 var services = new ServiceCollection()
-                    .AddSingleton(SheetBackedPuzzleList.FromSheet(googleConfig.PuzzleSheetId, sheetsService))
+                    .AddSingleton(puzzleList)
                     .AddSingleton(driveService)
                     .BuildServiceProvider();
 
