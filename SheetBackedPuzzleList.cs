@@ -1,15 +1,9 @@
 ﻿using DSharpPlus;
 using DSharpPlus.Entities;
 using Google.Apis.Drive.v3;
-using Google.Apis.Drive.v3.Data;
 using Google.Apis.Sheets.v4;
 using Google.Apis.Sheets.v4.Data;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
-using System.Threading.Tasks;
+using System.Collections.Concurrent;
 
 namespace HuntBot
 {
@@ -78,11 +72,35 @@ namespace HuntBot
                 voiceChatGroup);
         }
 
-        public async Task<PuzzleRecord?> GetPuzzle(string puzzleName)
+        public async Task<IEnumerable<PuzzleRecord>> FindPuzzles(string query)
+        {
+            var sheetReq = SheetsService.Spreadsheets.Values.Get(Id, Range);
+            var data = await sheetReq.ExecuteAsync();
+            var rows = data.Values.Where(v => v.Any(x => x is not null && x is string && x.ToString().ToLower().Contains(query)));
+            return rows.Select(row => BuildPuzzleRecord(row));
+        }
+
+        public async Task<PuzzleRecord?> GetPuzzleByName(string puzzleName)
         {
             var sheetReq = SheetsService.Spreadsheets.Values.Get(Id, Range);
             var data = await sheetReq.ExecuteAsync();
             var row = data.Values.FirstOrDefault(v => v.Any(x => x is not null && x is string && x.ToString().ToLower().Contains(puzzleName.ToLower())));
+
+            if (row == null)
+            {
+                return null;
+            }
+            else
+            {
+                return BuildPuzzleRecord(row);
+            }
+        }
+
+        public async Task<PuzzleRecord?> GetPuzzleByChannelId(ulong channelId)
+        {
+            var sheetReq = SheetsService.Spreadsheets.Values.Get(Id, Range);
+            var data = await sheetReq.ExecuteAsync();
+            var row = data.Values.FirstOrDefault(v => v.Contains(channelId.ToString()));
 
             if (row == null)
             {
@@ -122,19 +140,16 @@ namespace HuntBot
             }
         }
 
-        public async Task<PuzzleRecord?> AddItem(DocType type, ulong discordChannelId)
+        public async Task<PuzzleRecord?> AddItem(DocType type, ulong puzzleChannelId)
         {
-            var sheetReq = SheetsService.Spreadsheets.Values.Get(Id, Range);
-            var data = await sheetReq.ExecuteAsync();
-            var row = data.Values.FirstOrDefault(v => v.Contains(discordChannelId.ToString()));
+            var record = await GetPuzzleByChannelId(puzzleChannelId);
 
-            if (row is null)
+            if (record is null)
             {
                 return null;
             }
             else
             {
-                var record = BuildPuzzleRecord(row);
                 var docId = string.Empty;
                 var mimeType = string.Empty;
 
@@ -185,6 +200,86 @@ namespace HuntBot
                     return record;
                 }
             }
+        }
+
+        public async Task<PuzzleRecord?> AddVoiceChannelToPuzzle(ulong puzzleChannelId, ulong voiceChannelId)
+        {
+            var record = await GetPuzzleByChannelId(puzzleChannelId);
+
+            if (record is null)
+            {
+                return null;
+            }
+            else
+            {
+                record.DiscordVoiceChannelId = voiceChannelId.ToString();
+                await UpdatePuzzleRecord(record);
+                return record;
+            }
+        }
+
+        public async Task<PuzzleRecord?> SolvePuzzle(ulong puzzleChannelId, string answer)
+        {
+            var record = await GetPuzzleByChannelId(puzzleChannelId);
+
+            if (record is null)
+            {
+                return null;
+            }
+            else
+            {
+                // update the record
+                record.Answer = answer;
+                await UpdatePuzzleRecord(record);
+
+                // move the chat channel to the 'solved' parent
+                var channel = SolvedPuzzleChatGroup.Guild.GetChannel(puzzleChannelId);
+                await channel.ModifyAsync(new (c => c.Parent = SolvedPuzzleChatGroup));
+                return record;
+            }
+        }
+
+        public async Task<List<PuzzleRecord>> BulkImportPuzzles()
+        {
+            var sheetReq = SheetsService.Spreadsheets.Values.Get(Id, Range);
+            var data = await sheetReq.ExecuteAsync();
+
+            // Read through rows of the sheet
+            var updateTasks = new List<Task>();
+            var valueRanges = new ConcurrentBag<ValueRange>();
+            var updatedRecords = new ConcurrentBag<PuzzleRecord>();
+
+            for (int i = 0; i < data.Values.Count; i++)
+            {
+                var row = data.Values[i];
+                var record = BuildPuzzleRecord(row);
+
+                // if this puzzle has a name but no channel entry, we should create a channel for it and update it
+                if (!string.IsNullOrEmpty(record.Name) && string.IsNullOrEmpty(record.DiscordChannelId))
+                {
+                    var rowid = i + 1;
+                    updateTasks.Add(Task.Run(async () =>
+                    {
+                        var newChannel = await PuzzleChatGroup.Guild.CreateChannelAsync(record.Name, ChannelType.Text, PuzzleChatGroup);
+                        record.DiscordChannelId = newChannel.Id.ToString();
+                        var newRange = new ValueRange()
+                        {
+                            Range = $"{rowid}:{rowid}",
+                            Values = new List<IList<object>> { BuildSheetRow(record) }
+                        };
+                        valueRanges.Add(newRange);
+                        updatedRecords.Add(record);
+                    }));
+                }
+            }
+
+            await Task.WhenAll(updateTasks);
+            var updates = new BatchUpdateValuesRequest();
+            updates.Data = valueRanges.ToList();
+            updates.ValueInputOption = "RAW";
+            var batchUpdate = SheetsService.Spreadsheets.Values.BatchUpdate(updates, Id);
+            await batchUpdate.ExecuteAsync();
+            return updatedRecords.ToList();
         }
 
         private static PuzzleRecord BuildPuzzleRecord(IList<object> row)
@@ -251,14 +346,6 @@ namespace HuntBot
             row.Add(record.DiscordChannelId);
             row.Add(record.DiscordVoiceChannelId);
             return row;
-        }
-
-        public async Task<IEnumerable<PuzzleRecord>> FindPuzzles(string query)
-        {
-            var sheetReq = SheetsService.Spreadsheets.Values.Get(Id, Range);
-            var data = await sheetReq.ExecuteAsync();
-            var rows = data.Values.Where(v => v.Any(x => x is not null && x is string && x.ToString().ToLower().Contains(query)));
-            return rows.Select(row => BuildPuzzleRecord(row));
         }
     }
 }

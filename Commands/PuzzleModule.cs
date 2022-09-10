@@ -2,6 +2,7 @@
 using DSharpPlus.CommandsNext;
 using DSharpPlus.CommandsNext.Attributes;
 using DSharpPlus.Entities;
+using Emzi0767;
 using Google;
 using Google.Apis.Drive.v3;
 using Google.Apis.Sheets.v4.Data;
@@ -15,6 +16,32 @@ namespace HuntBot.Commands
         public DriveService? DriveService { private get; set; }
 
         string DriveRequestFields { get; } = "id, name, mimeType, webViewLink";
+
+        [Command("puzzle")]
+        public async Task GetPuzzleCommand(CommandContext ctx)
+        {
+            if (PuzzleList is null)
+            {
+                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
+                return;
+            }
+
+            if (DriveService is null)
+            {
+                await ctx.RespondAsync("error: google drive service is unavailable");
+                return;
+            }
+
+            var puzzle = await PuzzleList.GetPuzzleByChannelId(ctx.Channel.Id);
+            if (puzzle is null)
+            {
+                await ctx.RespondAsync("error: could not find puzzle record for this channel");
+                return;
+            }
+
+            var message = await RenderMessage(ctx.Client, puzzle);
+            await message.SendAsync(ctx.Channel);
+        }
 
         [Command("puzzle")]
         public async Task GetPuzzleCommand(CommandContext ctx, [RemainingText] string name)
@@ -33,7 +60,7 @@ namespace HuntBot.Commands
 
             name = name.Trim();
 
-            var puzzle = await PuzzleList.GetPuzzle(name);
+            var puzzle = await PuzzleList.GetPuzzleByName(name);
             if (puzzle is null)
             {
                 await ctx.RespondAsync($"error: no puzzle named '{name}'");
@@ -122,7 +149,7 @@ namespace HuntBot.Commands
         }
 
         [Command("doc")]
-        public async Task AddDocToPuzzlecommand(CommandContext ctx)
+        public async Task AddDocToPuzzleCommand(CommandContext ctx)
         {
             if (PuzzleList is null)
             {
@@ -145,6 +172,117 @@ namespace HuntBot.Commands
 
             var message = await RenderMessage(ctx.Client, puzzle);
             await message.SendAsync(ctx.Channel);
+        }
+
+        [Command("voice")]
+        public async Task AddVoiceChannelToPuzzleCommand(CommandContext ctx, int num)
+        {
+            if (PuzzleList is null)
+            {
+                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
+                return;
+            }
+
+            if (DriveService is null)
+            {
+                await ctx.RespondAsync("error: google drive service is unavailable");
+                return;
+            }
+
+            var voiceChannel = ctx.Guild.Channels.FirstOrDefault(c => c.Value.Name.Equals($"puzzchat{num}")).Value;
+
+            if (voiceChannel is null)
+            {
+                await ctx.RespondAsync("error: no voice channel specified");
+                return;
+            }
+
+            if (voiceChannel.Type != ChannelType.Voice)
+            {
+                await ctx.RespondAsync("error: channel specified is not a voice channel");
+                return;
+            }
+
+            var puzzle = await PuzzleList.AddVoiceChannelToPuzzle(ctx.Channel.Id, voiceChannel.Id);
+            if (puzzle is null)
+            {
+                await ctx.RespondAsync("error: could not find puzzle record for this channel");
+                return;
+            }
+
+            var message = await RenderMessage(ctx.Client, puzzle);
+            await message.SendAsync(ctx.Channel);
+        }
+
+        [Command("solve")]
+        public async Task SolvePuzzleCommand(CommandContext ctx, [RemainingText] string answer)
+        {
+            if (PuzzleList is null)
+            {
+                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
+                return;
+            }
+
+            if (DriveService is null)
+            {
+                await ctx.RespondAsync("error: google drive service is unavailable");
+                return;
+            }
+
+            var canonAnswer = CanonicalizeAnswer(answer);
+            if(string.IsNullOrEmpty(canonAnswer))
+            {
+                await ctx.RespondAsync($"error: canonincalized answer from `{answer}` is empty");
+                return;
+            }
+
+            var puzzle = await PuzzleList.SolvePuzzle(ctx.Channel.Id, canonAnswer);
+            if (puzzle is null)
+            {
+                await ctx.RespondAsync("error: could not find puzzle record for this channel");
+                return;
+            }
+
+            var message = await RenderMessage(ctx.Client, puzzle);
+            await message.SendAsync(ctx.Channel);
+        }
+
+        [Command("bulkimport")]
+        public async Task BulkImportPuzzles(CommandContext ctx)
+        {
+            if (PuzzleList is null)
+            {
+                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
+                return;
+            }
+
+            if (DriveService is null)
+            {
+                await ctx.RespondAsync("error: google drive service is unavailable");
+                return;
+            }
+
+            var puzzles = await PuzzleList.BulkImportPuzzles();
+            if (puzzles is null || puzzles.Count == 0)
+            {
+                await ctx.RespondAsync("warning: found no new puzzles to import");
+                return;
+            }
+
+            foreach (var puzzle in puzzles)
+            {
+                var message = await RenderMessage(ctx.Client, puzzle);
+                await message.SendAsync(ctx.Channel);
+            }
+        }
+
+        private static string CanonicalizeAnswer(string answer)
+        {
+            // all caps
+            answer = answer.ToUpper();
+
+            // keep only basic alphanum
+            return string.Concat(answer.Where(c => c.IsBasicAlphanumeric()));
         }
 
         private async Task<DiscordMessageBuilder> RenderMessage(DiscordClient client, SheetBackedPuzzleList.PuzzleRecord? puzzle)
