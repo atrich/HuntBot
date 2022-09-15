@@ -11,10 +11,11 @@ namespace HuntBot
     {
         internal class PuzzleRecord
         {
+            public string? Round { get; set; }
             public string? Name { get; set; }
             public string? Answer { get; set; }
-            public string? SheetId { get; set; }
-            public string? DocId { get; set; }
+            public string? SheetLink { get; set; }
+            public string? DocLink { get; set; }
             public string? DiscordChannelId { get; set; }
             public string? DiscordVoiceChannelId { get; set; }
         }
@@ -43,7 +44,7 @@ namespace HuntBot
             VoiceChatGroup = voiceChatGroup;
         }
 
-        private string Range { get; } = "A:F";
+        private string Range { get; } = "A:G";
         private string Id { get; }
         private string HuntDirectoryId { get; }
         private DriveService DriveService { get; }
@@ -128,7 +129,7 @@ namespace HuntBot
                 var newChannel = await PuzzleChatGroup.Guild.CreateTextChannelAsync(puzzleName, PuzzleChatGroup);
 
                 var requestBody = new ValueRange();
-                requestBody.Values = new List<IList<object>> { new List<object> { puzzleName, null, null, null, $"{newChannel.Id}" } };
+                requestBody.Values = new List<IList<object>> { new List<object> { null, puzzleName, null, null, null, $"{newChannel.Id}" } };
                 var valueInputOpt = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
                 var insertDataOpt = SpreadsheetsResource.ValuesResource.AppendRequest.InsertDataOptionEnum.INSERTROWS;
                 var appendReq = SheetsService.Spreadsheets.Values.Append(requestBody, Id, Range);
@@ -150,23 +151,23 @@ namespace HuntBot
             }
             else
             {
-                var docId = string.Empty;
+                var docLink = string.Empty;
                 var mimeType = string.Empty;
 
                 switch (type)
                 {
                     case DocType.Sheet:
-                        docId = record.SheetId;
+                        docLink = record.SheetLink;
                         mimeType = "application/vnd.google-apps.spreadsheet";
                         break;
 
                     case DocType.Doc:
-                        docId = record.DocId;
+                        docLink = record.DocLink;
                         mimeType = "application/vnd.google-apps.document";
                         break;
                 }
 
-                if (!string.IsNullOrEmpty(docId))
+                if (!string.IsNullOrEmpty(docLink))
                 {
                     return record;
                 }
@@ -181,18 +182,18 @@ namespace HuntBot
                     };
 
                     var request = DriveService.Files.Create(docMetadata);
-                    request.Fields = "id";
+                    request.Fields = "webViewLink";
                     var result = await request.ExecuteAsync();
 
                     // now add the item Id to the master puzzle sheet
                     switch (type)
                     {
                         case DocType.Sheet:
-                            record.SheetId = result.Id;
+                            record.SheetLink = result.WebViewLink;
                             break;
 
                         case DocType.Doc:
-                            record.DocId = result.Id;
+                            record.DocLink = result.WebViewLink;
                             break;
                     }
 
@@ -288,12 +289,13 @@ namespace HuntBot
 
             try
             {
-                record.Name = row[0] as string;
-                record.Answer = row[1] as string;
-                record.SheetId = row[2] as string;
-                record.DocId = row[3] as string;
-                record.DiscordChannelId = row[4] as string;
-                record.DiscordVoiceChannelId = row[5] as string;
+                record.Round = row[0] as string;
+                record.Name = row[1] as string;
+                record.Answer = row[2] as string;
+                record.SheetLink = row[3] as string;
+                record.DocLink = row[4] as string;
+                record.DiscordChannelId = row[5] as string;
+                record.DiscordVoiceChannelId = row[6] as string;
             }
             catch (System.ArgumentOutOfRangeException)
             {
@@ -339,10 +341,11 @@ namespace HuntBot
         private static IList<object> BuildSheetRow(PuzzleRecord record)
         {
             var row = new List<object>();
+            row.Add(record.Round);
             row.Add(record.Name);
             row.Add(record.Answer);
-            row.Add(record.SheetId);
-            row.Add(record.DocId);
+            row.Add(record.SheetLink);
+            row.Add(record.DocLink);
             row.Add(record.DiscordChannelId);
             row.Add(record.DiscordVoiceChannelId);
             return row;

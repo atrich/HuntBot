@@ -327,27 +327,15 @@ namespace HuntBot.Commands
             message.WithContent(text.ToString());
 
             // Create a google sheets link if the puzzle has a sheet
-            if (!string.IsNullOrEmpty(puzzle.SheetId))
+            if (!string.IsNullOrEmpty(puzzle.SheetLink))
             {
-                var sheetRequest = DriveService.Files.Get(puzzle.SheetId);
-                sheetRequest.Fields = DriveRequestFields;
-                var sheet = await sheetRequest.ExecuteAsync();
-                if (sheet is not null)
-                {
-                    buttons.Add(new DiscordLinkButtonComponent(sheet.WebViewLink, label: string.Empty, emoji: new DiscordComponentEmoji(DiscordEmoji.FromName(client, ":bar_chart:"))));
-                }
+                buttons.Add(new DiscordLinkButtonComponent(puzzle.SheetLink, label: string.Empty, emoji: new DiscordComponentEmoji(DiscordEmoji.FromName(client, ":bar_chart:"))));
             }
 
             // Create a google docs link if the puzzle has a doc
-            if (!string.IsNullOrEmpty(puzzle.DocId))
+            if (!string.IsNullOrEmpty(puzzle.DocLink))
             {
-                var docRequest = DriveService.Files.Get(puzzle.DocId);
-                docRequest.Fields = DriveRequestFields;
-                var doc = await docRequest.ExecuteAsync();
-                if (doc is not null)
-                {
-                    buttons.Add(new DiscordLinkButtonComponent(doc.WebViewLink, label: string.Empty, emoji: new DiscordComponentEmoji(DiscordEmoji.FromName(client, ":page_facing_up:"))));
-                }
+                buttons.Add(new DiscordLinkButtonComponent(puzzle.DocLink, label: string.Empty, emoji: new DiscordComponentEmoji(DiscordEmoji.FromName(client, ":page_facing_up:"))));
             }
 
             if (buttons.Any())
