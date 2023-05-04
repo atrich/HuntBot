@@ -1,279 +1,195 @@
 ﻿using DSharpPlus;
-using DSharpPlus.CommandsNext;
-using DSharpPlus.CommandsNext.Attributes;
 using DSharpPlus.Entities;
-using Emzi0767;
-using Google;
+using DSharpPlus.SlashCommands;
 using Google.Apis.Drive.v3;
-using Google.Apis.Sheets.v4.Data;
 using System.Text;
 
 namespace HuntBot.Commands
 {
-    internal class PuzzleModule : BaseCommandModule
+
+    internal class PuzzleModule : ApplicationCommandModule
     {
         public SheetBackedPuzzleList? PuzzleList { private get; set; }
         public DriveService? DriveService { private get; set; }
 
         string DriveRequestFields { get; } = "id, name, mimeType, webViewLink";
 
-        [Command("puzzle")]
-        public async Task GetPuzzleCommand(CommandContext ctx)
-        {
-            if (PuzzleList is null)
-            {
-                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
-                return;
-            }
+        readonly DiscordWebhookBuilder NoPuzzleListResponse = new DiscordWebhookBuilder().WithContent("error: unable to load the puzzle list sheet");
+        readonly DiscordWebhookBuilder NoDriveServiceResponse = new DiscordWebhookBuilder().WithContent("error: google drive service is unavailable");
+        readonly DiscordWebhookBuilder CantFindPuzzleResponse = new DiscordWebhookBuilder().WithContent("error: could not find puzzle record for this channel");
 
-            if (DriveService is null)
-            {
-                await ctx.RespondAsync("error: google drive service is unavailable");
-                return;
-            }
+        [SlashCommand("puzzle", "Get the puzzle for this channel")]
+        public async Task GetPuzzleCommand(InteractionContext ctx)
+        {
+            await EnsureContextAsync(ctx);
 
             var puzzle = await PuzzleList.GetPuzzleByChannelId(ctx.Channel.Id);
             if (puzzle is null)
             {
-                await ctx.RespondAsync("error: could not find puzzle record for this channel");
+                await ctx.EditResponseAsync(CantFindPuzzleResponse);
                 return;
             }
 
             var message = await RenderMessage(ctx.Client, puzzle);
-            await message.SendAsync(ctx.Channel);
+            await ctx.EditResponseAsync(message);
         }
 
-        [Command("puzzle")]
-        public async Task GetPuzzleCommand(CommandContext ctx, [RemainingText] string name)
+        [SlashCommand("get", "Get a specific puzzle by name")]
+        public async Task GetPuzzleCommand(
+            InteractionContext ctx,
+            [Option("name", "puzzle name"), Autocomplete(typeof(PuzzleNameProvider))] string name)
         {
-            if (PuzzleList is null)
-            {
-                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
-                return;
-            }
-
-            if (DriveService is null)
-            {
-                await ctx.RespondAsync("error: google drive service is unavailable");
-                return;
-            }
+            await EnsureContextAsync(ctx);
 
             name = name.Trim();
 
             var puzzle = await PuzzleList.GetPuzzleByName(name);
             if (puzzle is null)
             {
-                await ctx.RespondAsync($"error: no puzzle named '{name}'");
+                await ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent($"error: no puzzle named '{name}'"));
                 return;
             }
 
             var message = await RenderMessage(ctx.Client, puzzle);
-            await message.SendAsync(ctx.Channel);
+            await ctx.EditResponseAsync(message);
         }
 
-        [Command("find")]
-        public async Task FindPuzzleCommand(CommandContext ctx, [RemainingText] string query)
+        [SlashCommand("find", "Find all puzzles by substring match")]
+        public async Task FindPuzzleCommand(InteractionContext ctx, [Option("query", "search string")] string query)
         {
-            if (PuzzleList is null)
-            {
-                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
-                return;
-            }
-
-            if (DriveService is null)
-            {
-                await ctx.RespondAsync("error: google drive service is unavailable");
-                return;
-            }
+            await EnsureContextAsync(ctx);
 
             query = query.Trim();
             var puzzles = await PuzzleList.FindPuzzles(query);
             if (puzzles is null || puzzles.Count() == 0)
             {
-                await ctx.RespondAsync($"error: no puzzles match query '{query}'");
+                await ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent($"error: no puzzles match query '{query}'"));
                 return;
             }
 
-            foreach(var puzzle in puzzles)
-            {
-                var message = await RenderMessage(ctx.Client, puzzle);
-                await message.SendAsync(ctx.Channel);
-            }
+            var text = GetPuzzleListText(puzzles);
+            await ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent(text));
         }
 
-        [Command("new")]
-        public async Task NewPuzzleCommand(CommandContext ctx, [RemainingText] string name)
+        [SlashCommand("new", "Create a new puzzle")]
+        public async Task NewPuzzleCommand(InteractionContext ctx,
+            [Option("name", "puzzle name")] string name,
+            [Option("round", "puzzle round"), Autocomplete(typeof(RoundProvider))] string round)
         {
-            if (PuzzleList is null)
-            {
-                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
-                return;
-            }
-
-            if (DriveService is null)
-            {
-                await ctx.RespondAsync("error: google drive service is unavailable");
-                return;
-            }
+            await EnsureContextAsync(ctx);
 
             name = name.Trim();
-            var puzzle = await PuzzleList.NewPuzzle(name);
+            round = round.Trim();
+            var puzzle = await PuzzleList.NewPuzzle(name, round);
             var message = await RenderMessage(ctx.Client, puzzle);
-            await message.SendAsync(ctx.Channel);
+            await ctx.EditResponseAsync(message);
         }
 
-        [Command("sheet")]
-        public async Task AddSheetToPuzzleCommand(CommandContext ctx)
+        [SlashCommand("sheet", "Add a new google sheet to this puzzle")]
+        public async Task AddSheetToPuzzleCommand(InteractionContext ctx)
         {
-            if (PuzzleList is null)
-            {
-                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
-                return;
-            }
-
-            if (DriveService is null)
-            {
-                await ctx.RespondAsync("error: google drive service is unavailable");
-                return;
-            }
+            await EnsureContextAsync(ctx);
 
             var puzzle = await PuzzleList.AddItem(SheetBackedPuzzleList.DocType.Sheet, ctx.Channel.Id);
             if (puzzle is null)
             {
-                await ctx.RespondAsync("error: could not find puzzle record for this channel");
+                await ctx.EditResponseAsync(CantFindPuzzleResponse);
                 return;
             }
 
             var message = await RenderMessage(ctx.Client, puzzle);
-            await message.SendAsync(ctx.Channel);
+            await ctx.EditResponseAsync(message);
         }
 
-        [Command("doc")]
-        public async Task AddDocToPuzzleCommand(CommandContext ctx)
+        [SlashCommand("doc", "Add a new google doc to this puzzle")]
+        public async Task AddDocToPuzzleCommand(InteractionContext ctx)
         {
-            if (PuzzleList is null)
-            {
-                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
-                return;
-            }
-
-            if (DriveService is null)
-            {
-                await ctx.RespondAsync("error: google drive service is unavailable");
-                return;
-            }
+            await EnsureContextAsync(ctx);
 
             var puzzle = await PuzzleList.AddItem(SheetBackedPuzzleList.DocType.Doc, ctx.Channel.Id);
             if (puzzle is null)
             {
-                await ctx.RespondAsync("error: could not find puzzle record for this channel");
+                await ctx.EditResponseAsync(CantFindPuzzleResponse);
                 return;
             }
 
             var message = await RenderMessage(ctx.Client, puzzle);
-            await message.SendAsync(ctx.Channel);
+            await ctx.EditResponseAsync(message);
         }
 
-        [Command("voice")]
-        public async Task AddVoiceChannelToPuzzleCommand(CommandContext ctx, int num)
+        [SlashCommand("voice", "Assign a voice channel to this puzzle")]
+        public async Task AddVoiceChannelToPuzzleCommand(InteractionContext ctx,
+            [Choice("puzzchat1", 1)]
+            [Choice("puzzchat2", 2)]
+            [Choice("puzzchat3", 3)]
+            [Choice("puzzchat4", 4)]
+            [Choice("puzzchat5", 5)]
+            [Option("channel", "voice channel")] long num)
         {
-            if (PuzzleList is null)
-            {
-                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
-                return;
-            }
-
-            if (DriveService is null)
-            {
-                await ctx.RespondAsync("error: google drive service is unavailable");
-                return;
-            }
+            await EnsureContextAsync(ctx);
 
             var voiceChannel = ctx.Guild.Channels.FirstOrDefault(c => c.Value.Name.Equals($"puzzchat{num}")).Value;
 
             if (voiceChannel is null)
             {
-                await ctx.RespondAsync("error: no voice channel specified");
+                await ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent("error: no voice channel specified"));
                 return;
             }
 
             if (voiceChannel.Type != ChannelType.Voice)
             {
-                await ctx.RespondAsync("error: channel specified is not a voice channel");
+                ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent("error: channel specified is not a voice channel"));
                 return;
             }
 
             var puzzle = await PuzzleList.AddVoiceChannelToPuzzle(ctx.Channel.Id, voiceChannel.Id);
             if (puzzle is null)
             {
-                await ctx.RespondAsync("error: could not find puzzle record for this channel");
+                await ctx.EditResponseAsync(CantFindPuzzleResponse);
                 return;
             }
 
             var message = await RenderMessage(ctx.Client, puzzle);
-            await message.SendAsync(ctx.Channel);
+            await ctx.EditResponseAsync(message);
         }
 
-        [Command("solve")]
-        public async Task SolvePuzzleCommand(CommandContext ctx, [RemainingText] string answer)
+        [SlashCommand("solve", "Add a solution for this puzzle")]
+        public async Task SolvePuzzleCommand(InteractionContext ctx, [Option("answer", "puzzle answer")] string answer)
         {
-            if (PuzzleList is null)
-            {
-                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
-                return;
-            }
-
-            if (DriveService is null)
-            {
-                await ctx.RespondAsync("error: google drive service is unavailable");
-                return;
-            }
+            await EnsureContextAsync(ctx);
 
             var canonAnswer = CanonicalizeAnswer(answer);
-            if(string.IsNullOrEmpty(canonAnswer))
+            if (string.IsNullOrEmpty(canonAnswer))
             {
-                await ctx.RespondAsync($"error: canonincalized answer from `{answer}` is empty");
+                await ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent($"error: canonincalized answer from `{answer}` is empty"));
                 return;
             }
 
             var puzzle = await PuzzleList.SolvePuzzle(ctx.Channel.Id, canonAnswer);
             if (puzzle is null)
             {
-                await ctx.RespondAsync("error: could not find puzzle record for this channel");
+                await ctx.EditResponseAsync(CantFindPuzzleResponse);
                 return;
             }
 
             var message = await RenderMessage(ctx.Client, puzzle);
-            await message.SendAsync(ctx.Channel);
+            await ctx.EditResponseAsync(message);
         }
 
-        [Command("bulkimport")]
-        public async Task BulkImportPuzzles(CommandContext ctx)
+        [SlashCommand("bulkimport", "Bulk import puzzles that were entered into the sheet manually")]
+        public async Task BulkImportPuzzles(InteractionContext ctx)
         {
-            if (PuzzleList is null)
-            {
-                await ctx.RespondAsync("error: unable to load the puzzle list sheet");
-                return;
-            }
-
-            if (DriveService is null)
-            {
-                await ctx.RespondAsync("error: google drive service is unavailable");
-                return;
-            }
+            await EnsureContextAsync(ctx);
 
             var puzzles = await PuzzleList.BulkImportPuzzles();
             if (puzzles is null || puzzles.Count == 0)
             {
-                await ctx.RespondAsync("warning: found no new puzzles to import");
+                await ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent("warning: found no new puzzles to import"));
                 return;
             }
 
-            foreach (var puzzle in puzzles)
-            {
-                var message = await RenderMessage(ctx.Client, puzzle);
-                await message.SendAsync(ctx.Channel);
-            }
+            var text = GetPuzzleListText(puzzles);
+            await ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent(text));
         }
 
         private static string CanonicalizeAnswer(string answer)
@@ -282,13 +198,13 @@ namespace HuntBot.Commands
             answer = answer.ToUpper();
 
             // keep only basic alphanum
-            return string.Concat(answer.Where(c => c.IsBasicAlphanumeric()));
+            return string.Concat(answer.Where(char.IsLetterOrDigit));
         }
 
-        private async Task<DiscordMessageBuilder> RenderMessage(DiscordClient client, SheetBackedPuzzleList.PuzzleRecord? puzzle)
+        private async Task<DiscordWebhookBuilder> RenderMessage(DiscordClient client, SheetBackedPuzzleList.PuzzleRecord? puzzle)
         {
             // build a message for linking to the puzzle assets
-            var message = new DiscordMessageBuilder();
+            var message = new DiscordWebhookBuilder();
             var text = new StringBuilder();
             var buttons = new List<DiscordComponent>();
 
@@ -345,5 +261,115 @@ namespace HuntBot.Commands
 
             return message;
         }
+
+        private async Task EnsureContextAsync(InteractionContext ctx)
+        {
+            await ctx.CreateResponseAsync(InteractionResponseType.DeferredChannelMessageWithSource);
+
+            if (PuzzleList is null)
+            {
+                await ctx.EditResponseAsync(NoPuzzleListResponse);
+                return;
+            }
+
+            if (DriveService is null)
+            {
+                await ctx.EditResponseAsync(NoDriveServiceResponse);
+                return;
+            }
+        }
+
+        private static string GetPuzzleListText(IEnumerable<SheetBackedPuzzleList.PuzzleRecord> puzzles)
+        {
+            var text = new StringBuilder();
+            foreach (var puzzle in puzzles)
+            {
+                var solved = !string.IsNullOrEmpty(puzzle.Answer);
+
+                // Add ✅ or ❓if puzzle is solved
+                if (solved)
+                {
+                    text.Append(":white_check_mark:");
+                }
+                else
+                {
+                    text.Append(":grey_question:");
+                }
+
+                // Display puzzle name
+                text.Append(puzzle.Name);
+
+                // Display answer where solved
+                if (!string.IsNullOrEmpty(puzzle.Answer))
+                {
+                    text.Append($" **[{puzzle.Answer}]**");
+                }
+
+                if (!string.IsNullOrEmpty(puzzle.DiscordChannelId))
+                {
+                    text.Append($"  <#{puzzle.DiscordChannelId}>");
+                }
+
+                if (!string.IsNullOrEmpty(puzzle.DiscordVoiceChannelId))
+                {
+                    text.Append($"  <#{puzzle.DiscordVoiceChannelId}>");
+                }
+
+                text.AppendLine();
+            }
+
+            return text.ToString();
+        }
     }
+
+    internal class RoundProvider : IAutocompleteProvider
+    {
+        public async Task<IEnumerable<DiscordAutoCompleteChoice>> Provider(AutocompleteContext ctx)
+        {
+            var list = ctx.Services.GetRequiredService<SheetBackedPuzzleList>();
+            var rounds = list.GetRounds();
+            var options = new List<DiscordAutoCompleteChoice>();
+            string input = ((string)ctx.OptionValue).ToLower();
+
+            foreach (var round in rounds)
+            {
+                if (round.ToLower().Contains(input))
+                {
+                    options.Add(new DiscordAutoCompleteChoice(round, round));
+                }
+            }
+
+            return options.ToArray();
+        }
+    }
+
+    internal class PuzzleNameProvider : IAutocompleteProvider
+    {
+        public async Task<IEnumerable<DiscordAutoCompleteChoice>> Provider(AutocompleteContext ctx)
+        {
+            var list = ctx.Services.GetRequiredService<SheetBackedPuzzleList>();
+            var names = list.GetPuzzleNames();
+            var options = new List<DiscordAutoCompleteChoice>();
+            string input = ((string)ctx.OptionValue).ToLower();
+
+            foreach (var name in names)
+            {
+                if (name.ToLower().Contains(input))
+                {
+                    options.Add(new DiscordAutoCompleteChoice(name, name));
+                }
+            }
+
+            return options.ToArray();
+        }
+    }
+
+    internal class VoiceChannelProvider : ChoiceProvider
+    {
+        public override Task<IEnumerable<DiscordApplicationCommandOptionChoice>> Provider()
+        {
+            throw new NotImplementedException();
+        }
+    }
+
 }

@@ -1,16 +1,14 @@
-using DSharpPlus;
-using DSharpPlus.CommandsNext;
-using HuntBot.Commands;
-using HuntBot.Configs;
 using Azure.Extensions.AspNetCore.Configuration.Secrets;
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
+using DSharpPlus;
+using DSharpPlus.SlashCommands;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Drive.v3;
 using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
-using Google.Apis.Sheets.v4.Data;
-using System.Buffers.Text;
+using HuntBot.Commands;
+using HuntBot.Configs;
 using System.Text;
 
 namespace HuntBot
@@ -56,8 +54,6 @@ namespace HuntBot
                     Intents = DiscordIntents.Guilds | DiscordIntents.AllUnprivileged
                 });
 
-                await discordClient.ConnectAsync();
-
                 var googleConfig = new GoogleApiConifguration();
                 builtConfig.GetSection(GoogleApiConifguration.SectionName).Bind(googleConfig);
 
@@ -81,19 +77,20 @@ namespace HuntBot
                     solvedPuzzleChatGroupChannel,
                     voiceChatGroupChannel);
 
+                await puzzleList.BuildRoundCache();
+
                 var services = new ServiceCollection()
                     .AddSingleton(puzzleList)
                     .AddSingleton(driveService)
                     .BuildServiceProvider();
 
-                var commands = discordClient.UseCommandsNext(new CommandsNextConfiguration()
+                var slash = discordClient.UseSlashCommands(new SlashCommandsConfiguration()
                 {
-                    StringPrefixes = new[] { "!" },
                     Services = services
                 });
+                slash.RegisterCommands<PuzzleModule>();
 
-                commands.RegisterCommands<TestModule>();
-                commands.RegisterCommands<PuzzleModule>();
+                await discordClient.ConnectAsync();
             }
             catch (Exception e)
             {

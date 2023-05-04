@@ -1,14 +1,13 @@
-﻿using DSharpPlus.CommandsNext;
-using DSharpPlus.CommandsNext.Attributes;
+﻿using DSharpPlus.SlashCommands;
 
 namespace HuntBot.Commands
 {
-    internal class TestModule : BaseCommandModule
+    internal class TestModule : ApplicationCommandModule
     {
-        [Command("test")]
-        public async Task HelpCommand(CommandContext ctx)
+        [SlashCommand("test", "for testing")]
+        public async Task HelpCommand(InteractionContext ctx)
         {
-            await ctx.RespondAsync("Test goes here");
+            await ctx.CreateResponseAsync("Test goes here");
         }
     }
 }

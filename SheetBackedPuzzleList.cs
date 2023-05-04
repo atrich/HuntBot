@@ -54,6 +54,9 @@ namespace HuntBot
         private DiscordChannel SolvedPuzzleChatGroup { get; }
         private DiscordChannel VoiceChatGroup { get; }
 
+        private SortedSet<string> RoundCache { get; } = new SortedSet<string>();
+        private SortedSet<string> PuzzleNameCache { get; } = new SortedSet<string>();
+
         public static SheetBackedPuzzleList FromSheet(
             string id,
             string huntDirectoryId,
@@ -71,6 +74,30 @@ namespace HuntBot
                 puzzleChatGroup,
                 solvedPuzzleChatGroup,
                 voiceChatGroup);
+        }
+
+        public async Task BuildRoundCache()
+        {
+            var sheetReq = SheetsService.Spreadsheets.Values.Get(Id, "A:B");
+            var data = await sheetReq.ExecuteAsync();
+
+            RoundCache.Clear();
+
+            foreach (var row in data.Values.Skip(1)) // skip header row
+            {
+                if (row != null)
+                {
+                    if (row.Count > 0)
+                    {
+                        RoundCache.Add(row[0] as string);
+
+                        if (row.Count > 1)
+                        {
+                            PuzzleNameCache.Add(row[1] as string);
+                        }
+                    }
+                }
+            }
         }
 
         public async Task<IEnumerable<PuzzleRecord>> FindPuzzles(string query)
@@ -113,7 +140,7 @@ namespace HuntBot
             }
         }
 
-        public async Task<PuzzleRecord> NewPuzzle(string puzzleName)
+        public async Task<PuzzleRecord> NewPuzzle(string puzzleName, string round = "")
         {
             var sheetReq = SheetsService.Spreadsheets.Values.Get(Id, Range);
             var data = await sheetReq.ExecuteAsync();
@@ -125,11 +152,18 @@ namespace HuntBot
             }
             else
             {
+                PuzzleNameCache.Add(puzzleName);
+
+                if (!string.IsNullOrEmpty(round))
+                {
+                    RoundCache.Add(round);
+                }
+
                 // make the discord channel
                 var newChannel = await PuzzleChatGroup.Guild.CreateTextChannelAsync(puzzleName, PuzzleChatGroup);
 
                 var requestBody = new ValueRange();
-                requestBody.Values = new List<IList<object>> { new List<object> { null, puzzleName, null, null, null, $"{newChannel.Id}" } };
+                requestBody.Values = new List<IList<object>> { new List<object> { round, puzzleName, null, null, null, $"{newChannel.Id}" } };
                 var valueInputOpt = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
                 var insertDataOpt = SpreadsheetsResource.ValuesResource.AppendRequest.InsertDataOptionEnum.INSERTROWS;
                 var appendReq = SheetsService.Spreadsheets.Values.Append(requestBody, Id, Range);
@@ -235,7 +269,7 @@ namespace HuntBot
 
                 // move the chat channel to the 'solved' parent
                 var channel = SolvedPuzzleChatGroup.Guild.GetChannel(puzzleChannelId);
-                await channel.ModifyAsync(new (c => c.Parent = SolvedPuzzleChatGroup));
+                await channel.ModifyAsync(new(c => c.Parent = SolvedPuzzleChatGroup));
                 return record;
             }
         }
@@ -254,6 +288,8 @@ namespace HuntBot
             {
                 var row = data.Values[i];
                 var record = BuildPuzzleRecord(row);
+                RoundCache.Add(record.Round);
+                PuzzleNameCache.Add(record.Name);
 
                 // if this puzzle has a name but no channel entry, we should create a channel for it and update it
                 if (!string.IsNullOrEmpty(record.Name) && string.IsNullOrEmpty(record.DiscordChannelId))
@@ -281,6 +317,16 @@ namespace HuntBot
             var batchUpdate = SheetsService.Spreadsheets.Values.BatchUpdate(updates, Id);
             await batchUpdate.ExecuteAsync();
             return updatedRecords.ToList();
+        }
+
+        public List<string> GetRounds()
+        {
+            return RoundCache.ToList();
+        }
+
+        public List<string> GetPuzzleNames()
+        {
+            return PuzzleNameCache.ToList();
         }
 
         private static PuzzleRecord BuildPuzzleRecord(IList<object> row)
@@ -313,7 +359,7 @@ namespace HuntBot
             var data = await sheetReq.ExecuteAsync();
 
             int rowNum = 0;
-            for(int i = 0; i < data.Values.Count; i++)
+            for (int i = 0; i < data.Values.Count; i++)
             {
                 var row = data.Values[i];
                 if (row.Contains(record.Name))
