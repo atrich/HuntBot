@@ -138,7 +138,7 @@ namespace HuntBot.Commands
 
             if (voiceChannel.Type != ChannelType.Voice)
             {
-                ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent("error: channel specified is not a voice channel"));
+                await ctx.EditResponseAsync(new DiscordWebhookBuilder().WithContent("error: channel specified is not a voice channel"));
                 return;
             }
 
